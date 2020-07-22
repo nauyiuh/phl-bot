@@ -60,7 +60,7 @@ client.on("message", (message) => {
                 authorize(JSON.parse(content), (auth) => addAbuse(auth, values));
             });
             message.delete();
-
+            return;
             //CANCEL LOG
         } else if (obj.hasOwnProperty('cancel')) {
             const d = new Date(message.createdTimestamp);
@@ -71,7 +71,7 @@ client.on("message", (message) => {
                 authorize(JSON.parse(content), (auth) => addCancel(auth, values));
             });
             message.delete();
-
+            return;
             //FORFEIT LOG
         } else if (obj.hasOwnProperty('forfeit')) {
             const d = new Date(message.createdTimestamp);
@@ -85,9 +85,11 @@ client.on("message", (message) => {
                 message.delete();
                 var ffWin = obj.matchResult ? obj.TeamTwo : obj.TeamOne;
                 message.channel.send(`${ffWin} ${obj.forfeit} forfeited match. Score: ${obj.TeamOne} ${obj.TeamOneScore} - ${obj.TeamTwo} ${obj.TeamTwoScore}. Half ${obj.half} - Time ${obj.time}`);
+                return;
             }
             //OCCUPY LOG
-        } else if (obj.hasOwnProperty('occupy')){
+        } else if (obj.hasOwnProperty('occupy')) {
+            message.delete();
             client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
                 .then((message) => {
                     const oldEmbed = message.embeds[0];
@@ -109,6 +111,7 @@ client.on("message", (message) => {
                     message.edit(newEmbed);
                 })
                 .catch(console.error);
+            return;
                   //COMPLETED MATCH LOG
         } else {
             if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
@@ -121,6 +124,7 @@ client.on("message", (message) => {
                     authorize(JSON.parse(content), (auth) => addMatch(auth, values));
                 });
                 message.delete();
+                return;
             }
         }
     }
@@ -135,7 +139,7 @@ client.on("message", (message) => {
                         newEmbed.fields[0].name = `Arruda's Arena ${args[1]}`;
                         newEmbed.fields[1].name = `Maod's Arboretum ${args[2]}`;
                         newEmbed.fields[2].name = `Donovan's Domain ${args[3]}`;
-                        newEmbed.fields[3].name = `Froz3n Island ${args[4]}`;
+                        newEmbed.fields[3].name = `Froz3n  ${args[4]}`;
                         message.edit(newEmbed);
                     })
                     .catch(console.error);
