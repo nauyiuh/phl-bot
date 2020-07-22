@@ -102,7 +102,7 @@ client.on("message", (message) => {
                         case "Donovan's Domain":
                             newEmbed.fields[2].value = obj.players.join(', ');
                             break;
-                        case "Froz3n's Field":
+                        case "Froz3n Island":
                             newEmbed.fields[3].value = obj.players.join(', ');
                             break;
                     }
@@ -135,7 +135,7 @@ client.on("message", (message) => {
                         newEmbed.fields[0].name = `Arruda's Arena ${args[1]}`;
                         newEmbed.fields[1].name = `Maod's Arboretum ${args[2]}`;
                         newEmbed.fields[2].name = `Donovan's Domain ${args[3]}`;
-                        newEmbed.fields[3].name = `Froz3n's Field ${args[4]}`;
+                        newEmbed.fields[3].name = `Froz3n Island ${args[4]}`;
                         message.edit(newEmbed);
                     })
                     .catch(console.error);
