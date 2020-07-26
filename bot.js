@@ -7,6 +7,8 @@ const client = new Discord.Client();
 require('dotenv-flow').config();
 const disctoken = process.env.TOKEN;
 const PREFIX = process.env.PREFIX;
+const EncryptKey = process.env.ENCRPYTKEY
+const SimpleCrypto = require("simple-crypto-js").default
 
 const teams = {};
 
@@ -51,7 +53,7 @@ client.on("message", (message) => {
         var obj = JSON.parse(message);
 
         //ABUSE LOG
-        if (obj.hasOwnProperty('OldName')) {
+        if (obj.formtype == 'abuse') {
             const d = new Date(message.createdTimestamp);
             date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
             var values = [[d, obj.location, obj.Name, obj.OldName, obj.Auth, obj.Conn]];
@@ -62,7 +64,7 @@ client.on("message", (message) => {
             message.delete();
             return;
             //CANCEL LOG
-        } else if (obj.hasOwnProperty('cancel')) {
+        } else if (obj.formtype == 'cancelled-match') {
             const d = new Date(message.createdTimestamp);
             date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
             var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.cancel]]
@@ -73,22 +75,33 @@ client.on("message", (message) => {
             message.delete();
             return;
             //FORFEIT LOG
-        } else if (obj.hasOwnProperty('forfeit')) {
+        } else if (obj.formtype == 'forfeit-match') {
             const d = new Date(message.createdTimestamp);
             date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
+            const simpleCrypto = new SimpleCrypto(EncryptKey);
+            const decipherOne = simpleCrypto.decrypt(teams[obj.TeamOne][10]);
+            const decipherTwo = simpleCrypto.decrypt(teams[obj.TeamTwo][10]);
             if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
-                var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
-                fs.readFile('credentials.json', (err, content) => {
-                    if (err) return console.log('Error loading client secret file:', err);
-                    authorize(JSON.parse(content), (auth) => addMatch(auth, values));
-                });
-                message.delete();
-                var ffWin = obj.matchResult ? obj.TeamTwo : obj.TeamOne;
-                message.channel.send(`${ffWin} ${obj.forfeit} forfeited match. Score: ${obj.TeamOne} ${obj.TeamOneScore} - ${obj.TeamTwo} ${obj.TeamTwoScore}. Half ${obj.half} - Time ${obj.time}`);
+                if (decipherOne == obj.TeamOneSecret && decipherTwo == obj.TeamTwoSecret) {
+                    var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
+                    fs.readFile('credentials.json', (err, content) => {
+                        if (err) return console.log('Error loading client secret file:', err);
+                        authorize(JSON.parse(content), (auth) => addMatch(auth, values));
+                    });
+                    message.delete();
+                    var ffWin = obj.matchResult ? obj.TeamTwo : obj.TeamOne;
+                    message.channel.send(`${ffWin} ${obj.forfeit} forfeited match. Score: ${obj.TeamOne} ${obj.TeamOneScore} - ${obj.TeamTwo} ${obj.TeamTwoScore}. Half ${obj.half} - Time ${obj.time}`);
+                    return;
+                } else {
+                    message.channel.send(`cipher doesn't match-forfeit`);
+                    return;
+                }
+            } else {
+                message.channel.send(`team not found-forfeit`)
                 return;
             }
             //OCCUPY LOG
-        } else if (obj.hasOwnProperty('occupy')) {
+        } else if (obj.formtype == 'occupy') {
             message.delete();
             client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
                 .then((message) => {
@@ -112,24 +125,42 @@ client.on("message", (message) => {
                 })
                 .catch(console.error);
             return;
-                  //COMPLETED MATCH LOG
-        } else {
+        //COMPLETED MATCH LOG
+        } else if (obj.formtype == 'completed-match') {
+            const simpleCrypto = new SimpleCrypto(EncryptKey);
+            const decipherOne = simpleCrypto.decrypt(teams[obj.TeamTwo][10]);
+            const decipherTwo = simpleCrypto.decrypt(teams[obj.TeamOne][10]);
             if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
-                //create values array, push match data into it
-                const d = new Date(message.createdTimestamp);
-                date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
-                var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
-                fs.readFile('credentials.json', (err, content) => {
-                    if (err) return console.log('Error loading client secret file:', err);
-                    authorize(JSON.parse(content), (auth) => addMatch(auth, values));
-                });
-                message.delete();
+                if (obj.TeamOneSecret == decipherOne && obj.TeamTwoSecret == decipherTwo) {
+                    //create values array, push match data into it
+                    const d = new Date(message.createdTimestamp);
+                    date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
+                    var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
+                    fs.readFile('credentials.json', (err, content) => {
+                        if (err) return console.log('Error loading client secret file:', err);
+                        authorize(JSON.parse(content), (auth) => addMatch(auth, values));
+                    });
+                    message.delete();
+                    return;
+                } else {
+                    message.channel.send(`cipher's don't match`);
+                    return;
+                }
+            } else {
+                message.channel.send(`teams not found`);
                 return;
             }
         }
-    }
-    if (message.member.roles.cache.has('734966449764040725')) {
+    } else if (message.member.roles.cache.has('734966449764040725')) {
         switch (args[0]) {
+            case "reload":
+                for (var x in teams) if (teams.hasOwnProperty(x)) delete teams[x];
+                fs.readFile('credentials.json', (err, content) => {
+                    if (err) return console.log('Error loading client secret file:', err);
+                    authorize(JSON.parse(content), getTeams);
+                });
+                message.channel.send("teams reloaded");
+                break;
             case "links":
                 //this command will set the links in the ladder room embed
                 client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
@@ -139,20 +170,12 @@ client.on("message", (message) => {
                         newEmbed.fields[0].name = `Arruda's Arena ${args[1]}`;
                         newEmbed.fields[1].name = `Maod's Arboretum ${args[2]}`;
                         newEmbed.fields[2].name = `Donovan's Domain ${args[3]}`;
-                        newEmbed.fields[3].name = `Froz3n  ${args[4]}`;
+                        newEmbed.fields[3].name = `Froz3n Island ${args[4]}`;
                         message.edit(newEmbed);
                     })
                     .catch(console.error);
-            break;
+                break;
 
-        /**
-         * COMMAND updateRanking
-         *  
-         *  takes teams array and creates an array of player objects for glicko2 rating
-         *  takes match history and creates an array of matches (matchList) for glicko2 ranking
-         *  updates teams array and then writes values to google sheets
-         *  
-         */
             case "updateRanking":
                 if (message.author.id == '325912511859916800') {
                     fs.readFile('credentials.json', (err, content) => {
@@ -161,36 +184,26 @@ client.on("message", (message) => {
                     });
                     message.channel.send(`Updated team rankings`);
                 }
-            break;
-        /**
-         * COMMAND manualAdd
-         * 
-         * adds a match manually instead of using webhook messages.  
-         * 
-         */
-        case "manualAdd":
-            var obj = JSON.parse(args.slice(1).join(" "));
-            if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
-                //create values array, push match data into it
-                const d = new Date(message.createdTimestamp);
-                date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
-                var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
-                fs.readFile('credentials.json', (err, content) => {
-                    if (err) return console.log('Error loading client secret file:', err);
-                    authorize(JSON.parse(content), (auth) => addMatch(auth, values));
-                });
-                message.delete();
-                message.channel.send(`manually added match between ${teams[obj.TeamOne][1]} and ${teams[obj.TeamTwo][1]}`)
-            }
-            break;
-        /**
-         * COMMAND REGISTER
-         *  add team to database
-         *  
-         */
+                break;
+
+            case "manualAdd":
+                var obj = JSON.parse(args.slice(1).join(" "));
+                if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
+                    //create values array, push match data into it
+                    const d = new Date(message.createdTimestamp);
+                    date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
+                    var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
+                    fs.readFile('credentials.json', (err, content) => {
+                        if (err) return console.log('Error loading client secret file:', err);
+                        authorize(JSON.parse(content), (auth) => addMatch(auth, values));
+                    });
+                    message.delete();
+                    message.channel.send(`manually added match between ${teams[obj.TeamOne][1]} and ${teams[obj.TeamTwo][1]}`)
+                }
+                break;
+
         case "register":
-            // confirm we have the correct number of arguments
-            if (args.length < 3) {
+                if (args.length < 3) {
                 message.channel.send("ERROR:  Not enough arguments.  USAGE: !register TeamCode(3 characters) TeamName");
                 break;
             };
@@ -222,13 +235,7 @@ client.on("message", (message) => {
             message.channel.send(`${teamCode} - ${teamName} added to teams database`);
             break;
 
-
-        /**
-        *  COMMAND rosterEdit
-        *  
-        *  edit roster field of team.  only adds to the array, which would get updated on next ranking update, or manually
-        
-        case "rosterEdit":
+        case "registerRoster":
             
             var teamCode = (args[1] ? args[1].toUpperCase() : null);
             if (!args[1] || args.length < 3) {
@@ -240,12 +247,69 @@ client.on("message", (message) => {
                 break;
             } else {
                 teams[teamCode][9] = args.slice(2).join(" ")
+                message.channel.send(`${teamCode}'s roster updated.`)
+
+                var values = [];
+                for (const x in teams) {
+                    teams[x][2] = parseInt(teams[x][2]);
+                    teams[x][3] = parseInt(teams[x][3]);
+                    teams[x][4] = parseInt(teams[x][4]);
+                    teams[x][6] = parseFloat(teams[x][6]);
+                    teams[x][5] = parseFloat(teams[x][5]);
+                    teams[x][7] = parseFloat(teams[x][7]);
+                    teams[x][8] = parseFloat(teams[x][8]);
+
+                    values.push(teams[x]);
+                }
+
+                fs.readFile('credentials.json', (err, content) => {
+                    if (err) return console.log('Error loading client secret file:', err);
+                    authorize(JSON.parse(content), (auth) => teamsUpdate(auth, values));
+                });
+
+                message.delete();
                 break;
             }
-            
-          */ 
+ 
+        case "registerSecret":
+        var teamCode = (args[1] ? args[1].toUpperCase() : null);
+        if (!args[1] || args.length < 3) {
+            message.channel.send(`ERROR: Not enough arguments. USAGE: !rosterEdit TeamCode Password`);
+            break;
+        } else if (!teams.hasOwnProperty(teamCode)) {
+            message.channel.send(`ERROR: ${teamCode} doesn't exist.`);
+            console.log(teams.hasOwnProperty(teamCode));
+            break;
+        } else {
+            const plainText = args.slice(2).join(" ");
+            const simpleCrypto = new SimpleCrypto(EncryptKey);
+            const cipherText = simpleCrypto.encrypt(plainText);
+            teams[teamCode][10] = cipherText
+            message.channel.send(`${teamCode}'s secret password updated.`)
 
-            
+            var values = [];
+            for (const x in teams) {
+                teams[x][2] = parseInt(teams[x][2]);
+                teams[x][3] = parseInt(teams[x][3]);
+                teams[x][4] = parseInt(teams[x][4]);
+                teams[x][6] = parseFloat(teams[x][6]);
+                teams[x][5] = parseFloat(teams[x][5]);
+                teams[x][7] = parseFloat(teams[x][7]);
+                teams[x][8] = parseFloat(teams[x][8]);
+
+                values.push(teams[x]);
+            }
+
+            fs.readFile('credentials.json', (err, content) => {
+                if (err) return console.log('Error loading client secret file:', err);
+                authorize(JSON.parse(content), (auth) => teamsUpdate(auth, values));
+            });
+
+
+
+
+            message.delete();
+        }
         default:
             break;
 }
@@ -312,7 +376,7 @@ function getTeams(auth) {
     const sheets = google.sheets({ version: 'v4', auth });
     sheets.spreadsheets.values.get({
         spreadsheetId: '1jUE2knsdUoJrMoJZtCfGa92TO-HYaLRcs_g8FYP0B5o',
-        range: 'Teams!A2:J',
+        range: 'Teams!A2:K',
     }, (err, res) => {
         if (err) return console.log('The API returned an error: ' + err);
         const rows = res.data.values;
@@ -354,7 +418,7 @@ function addTeam(auth, values) {
     const sheets = google.sheets({ version: 'v4', auth });
     sheets.spreadsheets.values.append({
         spreadsheetId: '1jUE2knsdUoJrMoJZtCfGa92TO-HYaLRcs_g8FYP0B5o',
-        range: 'Teams!A2:J',
+        range: 'Teams!A2:K',
         valueInputOption: 'RAW',
         resource: body,
     }).then((response) => {
@@ -406,7 +470,7 @@ function teamsUpdate(auth, values) {
     const sheets = google.sheets({ version: 'v4', auth });
     sheets.spreadsheets.values.update({
         spreadsheetId: '1jUE2knsdUoJrMoJZtCfGa92TO-HYaLRcs_g8FYP0B5o',
-        range: 'Teams!A2:J',
+        range: 'Teams!A2:K',
         valueInputOption: 'RAW',
         resource: body
     }).then((response) => {
