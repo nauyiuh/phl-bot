@@ -6,11 +6,12 @@ const { google } = require('googleapis');
 const client = new Discord.Client();
 require('dotenv-flow').config();
 const disctoken = process.env.TOKEN;
-const PREFIX = process.env.PREFIX;
+const prefix = process.env.PREFIX;
 const EncryptKey = process.env.ENCRPYTKEY
 const SimpleCrypto = require("simple-crypto-js").default
 
 const teams = {};
+var ppLink;
 
 // If modifying these scopes, delete token.json.
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
@@ -22,21 +23,21 @@ const TOKEN_PATH = 'token.json';
 
 
 //setup glicko2
-var settings = {
-    tau: 0.5,
-    rating: 1500,
-    rd: 350,
-    vol: 0.06
-};
 const defRating = 1500;
 const defRd = 350;
 const defVol = 0.06;
+var settings = {
+    tau: 0.5,
+    rating: defRating,
+    rd: defRd,
+    vol: defVol,
+};
 var ranking = new glicko2.Glicko2(settings);
 
 
-//load teams on bot load
+//bot load
 client.on("ready", () => {
-  console.log("I am ready!");
+  console.log("PHL-Bot online");
     fs.readFile('credentials.json', (err, content) => {
         if (err) return console.log('Error loading client secret file:', err);
         authorize(JSON.parse(content), getTeams);
@@ -46,275 +47,19 @@ client.on("ready", () => {
 
 
 client.on("message", (message) => {
-
-    let args = message.content.substring(PREFIX.length).split(" ");
+    let args = message.content.substring(prefix.length).split(" ");
 
     if (message.webhookID) {
-        var obj = JSON.parse(message);
-
-        //ABUSE LOG
-        if (obj.formtype == 'abuse') {
-            const d = new Date(message.createdTimestamp);
-            date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
-            var values = [[d, obj.location, obj.Name, obj.OldName, obj.Auth, obj.Conn]];
-            fs.readFile('credentials.json', (err, content) => {
-                if (err) return console.log('Error loading client secret file:', err);
-                authorize(JSON.parse(content), (auth) => addAbuse(auth, values));
-            });
-            message.delete();
-            return;
-            //CANCEL LOG
-        } else if (obj.formtype == 'cancelled-match') {
-            const d = new Date(message.createdTimestamp);
-            date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
-            var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.cancel]]
-            fs.readFile('credentials.json', (err, content) => {
-                if (err) return console.log('Error loading client secret file:', err);
-                authorize(JSON.parse(content), (auth) => addCancel(auth, values));
-            });
-            message.delete();
-            return;
-            //FORFEIT LOG
-        } else if (obj.formtype == 'forfeit-match') {
-            const d = new Date(message.createdTimestamp);
-            date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
-            const simpleCrypto = new SimpleCrypto(EncryptKey);
-            const decipherOne = simpleCrypto.decrypt(teams[obj.TeamOne][10]);
-            const decipherTwo = simpleCrypto.decrypt(teams[obj.TeamTwo][10]);
-            if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
-                if (decipherOne == obj.TeamOneSecret && decipherTwo == obj.TeamTwoSecret) {
-                    var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
-                    fs.readFile('credentials.json', (err, content) => {
-                        if (err) return console.log('Error loading client secret file:', err);
-                        authorize(JSON.parse(content), (auth) => addMatch(auth, values));
-                    });
-                    message.delete();
-                    var ffWin = obj.matchResult ? obj.TeamTwo : obj.TeamOne;
-                    message.channel.send(`${ffWin} ${obj.forfeit} forfeited match. Score: ${obj.TeamOne} ${obj.TeamOneScore} - ${obj.TeamTwo} ${obj.TeamTwoScore}. Half ${obj.half} - Time ${obj.time}`);
-                    return;
-                } else {
-                    message.channel.send(`cipher doesn't match-forfeit`);
-                    return;
-                }
-            } else {
-                message.channel.send(`team not found-forfeit`)
-                return;
-            }
-            //OCCUPY LOG
-        } else if (obj.formtype == 'occupy') {
-            message.delete();
-            client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
-                .then((message) => {
-                    const oldEmbed = message.embeds[0];
-                    const newEmbed = new Discord.MessageEmbed(oldEmbed)
-                    switch (obj.location) {
-                        case "Arruda's Arena":
-                            newEmbed.fields[0].value = obj.players.join(', ');
-                            break;
-                        case "Maod's Arboretum":
-                            newEmbed.fields[1].value = obj.players.join(', ');
-                            break;
-                        case "Donovan's Domain":
-                            newEmbed.fields[2].value = obj.players.join(', ');
-                            break;
-                        case "Froz3n Island":
-                            newEmbed.fields[3].value = obj.players.join(', ');
-                            break;
-                    }
-                    message.edit(newEmbed);
-                })
-                .catch(console.error);
-            return;
-        //COMPLETED MATCH LOG
-        } else if (obj.formtype == 'completed-match') {
-            const simpleCrypto = new SimpleCrypto(EncryptKey);
-            const decipherOne = simpleCrypto.decrypt(teams[obj.TeamTwo][10]);
-            const decipherTwo = simpleCrypto.decrypt(teams[obj.TeamOne][10]);
-            if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
-                if (obj.TeamOneSecret == decipherOne && obj.TeamTwoSecret == decipherTwo) {
-                    //create values array, push match data into it
-                    const d = new Date(message.createdTimestamp);
-                    date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
-                    var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
-                    fs.readFile('credentials.json', (err, content) => {
-                        if (err) return console.log('Error loading client secret file:', err);
-                        authorize(JSON.parse(content), (auth) => addMatch(auth, values));
-                    });
-                    message.delete();
-                    return;
-                } else {
-                    message.channel.send(`cipher's don't match`);
-                    return;
-                }
-            } else {
-                message.channel.send(`teams not found`);
-                return;
-            }
+        message.delete();
+        webhookCommands(message);
+    } else if (message.content.startsWith(prefix)) {
+        if (message.member.roles.cache.has('734966449764040725')) {
+            staffCommands(message);
         }
-    } else if (message.member.roles.cache.has('734966449764040725')) {
-        switch (args[0]) {
-            case "reload":
-                for (var x in teams) if (teams.hasOwnProperty(x)) delete teams[x];
-                fs.readFile('credentials.json', (err, content) => {
-                    if (err) return console.log('Error loading client secret file:', err);
-                    authorize(JSON.parse(content), getTeams);
-                });
-                message.channel.send("teams reloaded");
-                break;
-            case "links":
-                //this command will set the links in the ladder room embed
-                client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
-                    .then((message) => {
-                        const oldEmbed = message.embeds[0];
-                        const newEmbed = new Discord.MessageEmbed(oldEmbed)
-                        newEmbed.fields[0].name = `Arruda's Arena ${args[1]}`;
-                        newEmbed.fields[1].name = `Maod's Arboretum ${args[2]}`;
-                        newEmbed.fields[2].name = `Donovan's Domain ${args[3]}`;
-                        newEmbed.fields[3].name = `Froz3n Island ${args[4]}`;
-                        message.edit(newEmbed);
-                    })
-                    .catch(console.error);
-                break;
-
-            case "updateRanking":
-                if (message.author.id == '325912511859916800') {
-                    fs.readFile('credentials.json', (err, content) => {
-                        if (err) return console.log('Error loading client secret file:', err);
-                        authorize(JSON.parse(content), getMatches);
-                    });
-                    message.channel.send(`Updated team rankings`);
-                }
-                break;
-
-            case "manualAdd":
-                var obj = JSON.parse(args.slice(1).join(" "));
-                if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
-                    //create values array, push match data into it
-                    const d = new Date(message.createdTimestamp);
-                    date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
-                    var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
-                    fs.readFile('credentials.json', (err, content) => {
-                        if (err) return console.log('Error loading client secret file:', err);
-                        authorize(JSON.parse(content), (auth) => addMatch(auth, values));
-                    });
-                    message.delete();
-                    message.channel.send(`manually added match between ${teams[obj.TeamOne][1]} and ${teams[obj.TeamTwo][1]}`)
-                }
-                break;
-
-        case "register":
-                if (args.length < 3) {
-                message.channel.send("ERROR:  Not enough arguments.  USAGE: !register TeamCode(3 characters) TeamName");
-                break;
-            };
-            // confirm first argument is a 3 character code
-            if (args[1].length > 3) {
-                message.channel.send("ERROR: TeamCode must be 3 characters or less");
-                break;
-            };
-
-            var teamCode = args[1].toUpperCase();
-            var teamName = args.slice(2).join(" ");
-
-            // make sure the 3 char code isn't in use
-            if (teamCode in teams) {
-                message.channel.send(`ERROR: ${teamCode} already exists`);
-                break;
-            }
-
-            // add team to teams array
-            teams[teamCode] = [teamCode, teamName, 0, 0, 0, defRating, 0, defRd, defVol];
-
-            // send to google sheets
-            var values = [];
-            values.push(teams[teamCode]);
-            fs.readFile('credentials.json', (err, content) => {
-                if (err) return console.log('Error loading client secret file:', err);
-                authorize(JSON.parse(content), (auth) => addTeam(auth, values));
-            });
-            message.channel.send(`${teamCode} - ${teamName} added to teams database`);
-            break;
-
-        case "registerRoster":
-            
-            var teamCode = (args[1] ? args[1].toUpperCase() : null);
-            if (!args[1] || args.length < 3) {
-                message.channel.send(`ERROR:  Not enough arguments.  USAGE: !rosterEdit TeamCode Roster`);
-                break;
-            } else if (!teams.hasOwnProperty(teamCode)) {
-                message.channel.send(`ERROR:  ${teamCode} doesn't exist.`);
-                console.log(teams.hasOwnProperty(teamCode));
-                break;
-            } else {
-                teams[teamCode][9] = args.slice(2).join(" ")
-                message.channel.send(`${teamCode}'s roster updated.`)
-
-                var values = [];
-                for (const x in teams) {
-                    teams[x][2] = parseInt(teams[x][2]);
-                    teams[x][3] = parseInt(teams[x][3]);
-                    teams[x][4] = parseInt(teams[x][4]);
-                    teams[x][6] = parseFloat(teams[x][6]);
-                    teams[x][5] = parseFloat(teams[x][5]);
-                    teams[x][7] = parseFloat(teams[x][7]);
-                    teams[x][8] = parseFloat(teams[x][8]);
-
-                    values.push(teams[x]);
-                }
-
-                fs.readFile('credentials.json', (err, content) => {
-                    if (err) return console.log('Error loading client secret file:', err);
-                    authorize(JSON.parse(content), (auth) => teamsUpdate(auth, values));
-                });
-
-                message.delete();
-                break;
-            }
- 
-        case "registerSecret":
-        var teamCode = (args[1] ? args[1].toUpperCase() : null);
-        if (!args[1] || args.length < 3) {
-            message.channel.send(`ERROR: Not enough arguments. USAGE: !rosterEdit TeamCode Password`);
-            break;
-        } else if (!teams.hasOwnProperty(teamCode)) {
-            message.channel.send(`ERROR: ${teamCode} doesn't exist.`);
-            console.log(teams.hasOwnProperty(teamCode));
-            break;
-        } else {
-            const plainText = args.slice(2).join(" ");
-            const simpleCrypto = new SimpleCrypto(EncryptKey);
-            const cipherText = simpleCrypto.encrypt(plainText);
-            teams[teamCode][10] = cipherText
-            message.channel.send(`${teamCode}'s secret password updated.`)
-
-            var values = [];
-            for (const x in teams) {
-                teams[x][2] = parseInt(teams[x][2]);
-                teams[x][3] = parseInt(teams[x][3]);
-                teams[x][4] = parseInt(teams[x][4]);
-                teams[x][6] = parseFloat(teams[x][6]);
-                teams[x][5] = parseFloat(teams[x][5]);
-                teams[x][7] = parseFloat(teams[x][7]);
-                teams[x][8] = parseFloat(teams[x][8]);
-
-                values.push(teams[x]);
-            }
-
-            fs.readFile('credentials.json', (err, content) => {
-                if (err) return console.log('Error loading client secret file:', err);
-                authorize(JSON.parse(content), (auth) => teamsUpdate(auth, values));
-            });
-
-
-
-
-            message.delete();
-        }
-        default:
-            break;
-}
-}
-})
+        userCommands(message);
+    }
+});
+   
 /**
  * Create an OAuth2 client with the given credentials, and then execute the
  * given callback function.
@@ -368,8 +113,6 @@ function getNewToken(oAuth2Client, callback) {
 
 /**
  * googlesheet api functions
- * CONFIG STUFF HERE [SPREADSHEETID]
- * might not need to hide the spreadsheet ID
  */
 
 function getTeams(auth) {
@@ -523,15 +266,335 @@ function updateRanking(matches) {
         values.push(teams[x]);
     }
 
-
+    //sort teams by rating
+    values.sort((a, b) => (a[5] > b[5]) ? -1 : 1);
     //update google sheets
     fs.readFile('credentials.json', (err, content) => {
         if (err) return console.log('Error loading client secret file:', err);
-        // Authorize a client with credentials, then call the Google Sheets API.
         authorize(JSON.parse(content), (auth) => teamsUpdate(auth, values));
     });
     //clean up
     matches.splice(0, matches.length);
+}
+
+/*
+ * WEBHOOK COMMANDS AND FUNCTIONS
+ */
+function webhookCommands(message) {
+    var obj = JSON.parse(message);
+    message.delete();
+    switch (obj.formtype) {
+        case "abuse":
+            logAbuse(obj);
+            break;
+        case "cancelled-match":
+            logCancelledMatch(obj);
+            break;
+        case "forfeit-match":
+            logForfeit(obj);
+            break;
+        case "occupy":
+            updateOccupy(obj);
+            break;
+        case "completed-match":
+            logCompletedMatch(obj);
+            break;
+    }
+}
+
+function logAbuse(obj) {
+    const d = new Date();
+    var date = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
+    var values = [[date, obj.location, obj.Name, obj.OldName, obj.Auth, obj.Conn]];
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        authorize(JSON.parse(content), (auth) => addAbuse(auth, values));
+    });
+}
+
+function logCancelledMatch(obj) {
+    const d = new Date();
+    var date = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
+    var values = [[date, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.cancel]]
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        authorize(JSON.parse(content), (auth) => addCancel(auth, values));
+    });
+}
+
+function logForfeit(obj) {
+    if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
+        const simpleCrypto = new SimpleCrypto(EncryptKey);
+        const decipherOne = simpleCrypto.decrypt(teams[obj.TeamTwo][10]);
+        const decipherTwo = simpleCrypto.decrypt(teams[obj.TeamOne][10]);
+        if (decipherOne == obj.TeamOneSecret && decipherTwo == obj.TeamTwoSecret) {
+            const d = new Date();
+            var date = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
+            var values = [[date, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
+            fs.readFile('credentials.json', (err, content) => {
+                if (err) return console.log('Error loading client secret file:', err);
+                authorize(JSON.parse(content), (auth) => addMatch(auth, values));
+            });
+            var ffWin = obj.matchResult ? obj.TeamTwo : obj.TeamOne;
+            message.channel.send(`${ffWin} ${obj.forfeit} forfeited match. Score: ${obj.TeamOne} ${obj.TeamOneScore} - ${obj.TeamTwo} ${obj.TeamTwoScore}. Half ${obj.half} - Time ${obj.time}`);
+        } else {
+            message.channel.send(obj.stringify());
+            message.channel.send(`cipher doesn't match-forfeit`)
+        }
+    } else {
+        message.channel.send(obj.stringify());
+        message.channel.send(`teams don't match-forfeit`);
+    }
+}
+
+function logCompletedMatch(obj) {
+    if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
+        const simpleCrypto = new SimpleCrypto(EncryptKey);
+        const decipherOne = simpleCrypto.decrypt(teams[obj.TeamTwo][10]);
+        const decipherTwo = simpleCrypto.decrypt(teams[obj.TeamOne][10]);
+        if (obj.TeamOneSecret == decipherOne && obj.TeamTwoSecret == decipherTwo) {
+            //create values array, push match data into it
+            const d = new Date();
+            var date = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
+            var values = [[date, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
+            fs.readFile('credentials.json', (err, content) => {
+                if (err) return console.log('Error loading client secret file:', err);
+                authorize(JSON.parse(content), (auth) => addMatch(auth, values));
+            });
+            return;
+        } else {
+            message.channel.send(obj.stringify());
+            message.channel.send(`cipher's don't match`);
+            return;
+        }
+    } else {
+        message.channel.send(obj.stringify());
+        message.channel.send(`teams not found`);
+        return;
+    }
+}
+
+function updateOccupy(obj) {
+    client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
+        .then((message) => {
+            const oldEmbed = message.embeds[0];
+            const newEmbed = new Discord.MessageEmbed(oldEmbed)
+            switch (obj.location) {
+                case "Arruda's Arena":
+                    newEmbed.fields[0].value = obj.players.join(', ');
+                    break;
+                case "Maod's Arboretum":
+                    newEmbed.fields[1].value = obj.players.join(', ');
+                    break;
+                case "Donovan's Domain":
+                    newEmbed.fields[2].value = obj.players.join(', ');
+                    break;
+                case "Froz3n Island":
+                    newEmbed.fields[3].value = obj.players.join(', ');
+                    break;
+            }
+            message.edit(newEmbed);
+        })
+        .catch(console.error);
+}
+
+/*
+ * STAFF COMMANDS AND FUNCTIONS
+ */
+function staffCommands(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+    switch (args[0]) {
+        case "reload":
+            reloadTeams(message);
+            break;
+        case "links":
+            updateRoomLinks(message);
+            break;
+        case "updateRanking":
+            updateLadder(message);
+            break;
+        case "manualAdd":
+            manualAdd(message);
+            break;
+        case "register":
+            register(message);
+            break;
+        case "pubLink":
+            pubLink(message);
+            break;
+    }
+}
+
+function reloadTeams(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+    for (var x in teams) if (teams.hasOwnProperty(x)) delete teams[x];
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        authorize(JSON.parse(content), getTeams);
+    });
+    message.reply(`reloaded teams from db`);
+    message.delete();
+}
+
+function updateRoomLinks(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+    client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
+        .then((message) => {
+            const oldEmbed = message.embeds[0];
+            const newEmbed = new Discord.MessageEmbed(oldEmbed)
+            newEmbed.fields[0].name = `Arruda's Arena ${args[1]}`;
+            newEmbed.fields[1].name = `Maod's Arboretum ${args[2]}`;
+            newEmbed.fields[2].name = `Donovan's Domain ${args[3]}`;
+            newEmbed.fields[3].name = `Froz3n Island ${args[4]}`;
+            message.edit(newEmbed);
+        })
+        .catch(console.error);
+    message.reply(`updated room links`);
+    message.delete();
+}
+
+function updateLadder(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+        fs.readFile('credentials.json', (err, content) => {
+            if (err) return console.log('Error loading client secret file:', err);
+            authorize(JSON.parse(content), getMatches);
+        });
+    message.reply(`updated ladder`);
+    message.delete();
+}
+
+function manualAdd(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+    var obj = JSON.parse(args.slice(1).join(" "));
+    if (teams.hasOwnProperty(obj.TeamOne) && teams.hasOwnProperty(obj.TeamTwo)) {
+        //create values array, push match data into it
+        const d = new Date(message.createdTimestamp);
+        date = d.getHours() + ":" + d.getMinutes() + ", " + d.toDateString();
+        var values = [[d, obj.location, obj.TeamOne, obj.TeamOneScore, obj.TeamTwo, obj.TeamTwoScore, obj.matchResult]];
+        fs.readFile('credentials.json', (err, content) => {
+            if (err) return console.log('Error loading client secret file:', err);
+            authorize(JSON.parse(content), (auth) => addMatch(auth, values));
+        });
+        message.reply(`match manually added between ${TeamOne} and ${TeamTwo}`);
+        message.delete();
+    }
+}
+
+function register(message) {
+    //USAGE: !register {"code": "", "name": "", "roster":"", "secret": ""}
+    var args = message.content.substring(prefix.length).split(" ");
+    if (!args[1]) {
+        message.reply(`USAGE: !register { "code": "", "name": "", "roster": "", "secret": "" }`);
+        message.delete();
+        return;
+    }
+
+    try {
+        JSON.parse(args.slice(1).join(" "));
+    }
+    catch (e) {
+        message.reply(`USAGE: !register { "code": "", "name": "", "roster": "", "secret": "" }`);
+        message.delete();
+        return;
+    }
+    var obj = JSON.parse(args.slice(1).join(" "));
+    
+    //check to make sure object has required properties
+    if (obj.hasOwnProperty("name") && obj.hasOwnProperty("code") && obj.hasOwnProperty("roster") && obj.hasOwnProperty("secret")) {
+        //validate properties are correctly formatted
+        if (obj.code.length > 3) {
+            message.reply(`Team code should be 3 characters or less`)
+            message.reply(`${obj.stringify}`)
+            message.delete();
+            return;
+        }
+        //make sure code isn't in use
+        var teamCode = obj.code.toUpperCase();
+
+        if (teamCode in teams) {
+            message.reply(`ERROR: ${teamCode} already exists`);
+            message.delete();
+            return;
+        }
+        //append to google sheets and add to team array
+        teams[teamCode] = [teamCode, obj.name, 0, 0, 0, defRating, 0, defRd, defVol, obj.roster, obj.secret];
+        var values = [];
+        values.push(teams[teamCode]);
+        fs.readFile('credentials.json', (err, content) => {
+            if (err) return console.log('Error loading client secret file:', err);
+            authorize(JSON.parse(content), (auth) => addTeam(auth, values));
+        });
+        message.reply(`${teamCode} - ${obj.name} added to teams database`);
+        message.delete();
+        return;
+    } else {
+        message.reply(`Incorrect syntax.  Please pass an object with the following properties: name, team code, roster, secret code`);
+        message.reply(`"Usage template: {"code":"","name":"","roster":"","secret":""}"`)
+        message.delete();
+        return;
+    }
+}
+
+function pubLink(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+    ppLink = args[1];
+    message.reply(`updated pub link to ${ppLink}`);
+    message.delete();
+}
+
+/*
+ * GENERAL USE COMMANDS
+ */
+function userCommands(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+    switch (args[0]) {
+        case "pp":
+            message.guild.roles.fetch('737894403435135036')
+                .then(roles => privatePub(message, roles.members.size))
+                .catch(console.error);
+            break;
+        default:
+            break;
+    }
+}
+
+
+//client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
+async function privatePub(message, memberCount) {
+    var args = message.content.substring(prefix.length).split(" ");
+    switch (args[1]) {
+        case "on":
+            if (memberCount < 8) {
+                message.reply(`you've been added to private-pub list. There are ${memberCount} people in the queue.`);
+            } else if (memberCount = 8) {
+                message.reply(`<@&${roleID}> ${memberCount} players have joined queue.  ${ppLink}`);
+            } else if (memberCount > 8) {
+                message.reply(`${memberCount} players are in queue.  ${ppLink}`);
+
+            }
+            message.member.roles.add("741809077331689484");
+            message.delete();
+            
+            break;
+        case "off":
+            message.member.roles.remove("741809077331689484");
+            message.delete();
+            break;
+        default:
+            message.reply("USAGE: !pp on to add yourself to private-pub list, !pp off to remove yourself from private-pub list");
+            message.delete();
+    }
+    //case arg
+    //arg on
+        // # of users in role is under 8 OR # of users in room is under 8
+        // add user to gathers role
+        // # of users will be 8 or # of users in room will be 8
+        // add user to gathers role -> ping role
+        // # of users is 8+ or room will be 8+
+        // add user to gathers role -> reply to user w/ room link
+    //arg off
+        // remove user from gathers role
+    //default return usage
 }
 
 client.login(disctoken);
