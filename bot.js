@@ -11,6 +11,7 @@ const EncryptKey = process.env.ENCRPYTKEY
 const SimpleCrypto = require("simple-crypto-js").default
 
 const teams = {};
+const soloPlayers = {};
 var ppLink;
 
 // If modifying these scopes, delete token.json.
@@ -42,6 +43,10 @@ client.on("ready", () => {
         if (err) return console.log('Error loading client secret file:', err);
         authorize(JSON.parse(content), getTeams);
     });
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        authorize(JSON.parse(content), getSolo);
+    });
 });
 
 
@@ -50,7 +55,6 @@ client.on("message", (message) => {
     let args = message.content.substring(prefix.length).split(" ");
 
     if (message.webhookID) {
-        message.delete();
         webhookCommands(message);
     } else if (message.content.startsWith(prefix)) {
         if (message.member.roles.cache.has('734966449764040725')) {
@@ -223,6 +227,91 @@ function teamsUpdate(auth, values) {
 
 }
 
+//SOLO_GOOGLE
+function getSolo(auth) {
+    const sheets = google.sheets({ version: 'v4', auth });
+    sheets.spreadsheets.values.get({
+        spreadsheetId: '117Zt6KILkA909JhajGcrYM9Vcel6It-5tPrWI54cvsk',
+        range: 'players!A2:E',
+    }, (err, res) => {
+        if (err) return console.log('The API returned an error: ' + err);
+        const rows = res.data.values;
+        if (rows.length) {
+            for (const val of rows) {
+                soloPlayers[val[0]] = val;
+            }
+            console.log("gapi.get successful");
+            for (const player in soloPlayers) {
+                soloPlayers[player][1] = parseInt(soloPlayers[player][1])
+                soloPlayers[player][2] = parseInt(soloPlayers[player][2])
+                soloPlayers[player][3] = parseInt(soloPlayers[player][3])
+                soloPlayers[player][4] = parseInt(soloPlayers[player][4])
+            }
+            console.log(soloPlayers);
+        } else {
+            console.log('No data found.');
+        }
+    });
+}
+
+function addSoloMatch(auth, values) {
+    var body = { values: [...values] }
+    const sheets = google.sheets({ version: 'v4', auth });
+    sheets.spreadsheets.values.append({
+        spreadsheetId: '117Zt6KILkA909JhajGcrYM9Vcel6It-5tPrWI54cvsk',
+        range: 'matches!A2:T',
+        valueInputOption: 'RAW',
+        resource: body,
+    }).then((response) => {
+        console.log("gapi.append successful");
+    });
+};
+
+function updateSoloOccupy1(auth, values) {
+    var body = { values: [...values] }
+    const sheets = google.sheets({ version: 'v4', auth });
+    sheets.spreadsheets.values.update({
+        spreadsheetId: '117Zt6KILkA909JhajGcrYM9Vcel6It-5tPrWI54cvsk',
+        range: 'room!A2:A',
+        valueInputOption: 'RAW',
+        resource: body
+    }).then((response) => {
+        var result = response.result;
+        console.log(`gapi.update successful`)
+    });
+}
+
+function updateSoloOccupy2(auth, values) {
+    var body = { values: [...values] }
+    const sheets = google.sheets({ version: 'v4', auth });
+    sheets.spreadsheets.values.update({
+        spreadsheetId: '117Zt6KILkA909JhajGcrYM9Vcel6It-5tPrWI54cvsk',
+        range: 'room2!A2:A',
+        valueInputOption: 'RAW',
+        resource: body
+    }).then((response) => {
+        var result = response.result;
+        console.log(`gapi.update successful`)
+    });
+}
+
+function updateSoloPlayers(auth, values) {
+    var body = { values: [...values] }
+    const sheets = google.sheets({ version: 'v4', auth });
+    sheets.spreadsheets.values.update({
+        spreadsheetId: '117Zt6KILkA909JhajGcrYM9Vcel6It-5tPrWI54cvsk',
+        range: 'players!A2:E',
+        valueInputOption: 'RAW',
+        resource: body
+    }).then((response) => {
+        var result = response.result;
+        console.log(`gapi.update successful`)
+    });
+}
+
+
+
+
 function updateRanking(matches) {
 
     //using teams, create teamList which is an object whose properties are player objects for glicko2
@@ -299,6 +388,14 @@ function webhookCommands(message) {
         case "completed-match":
             logCompletedMatch(obj);
             break;
+        case "solo-occupy":
+            soloOccupy(obj);
+            break;
+        case "solo-ladder-match":
+            parseMatch(obj);
+            break;
+        case "solo-ladder-manual":
+            break;
     }
 }
 
@@ -373,6 +470,137 @@ function logCompletedMatch(obj) {
         return;
     }
 }
+
+function soloOccupy(obj) {
+    //for each member, push to array
+    //check length of array, then push null values to array to fill out
+    var values = [];
+    for (let i = 0; i < obj.players.length; i++) {
+        if (obj.players[i] != "host") {
+            values.push([obj.players[i]]);
+        }
+    }
+    for (let i = values.length; i < 15; i++) {
+        values.push([""]);
+    }
+
+    if (obj.location == "one") {
+        fs.readFile('credentials.json', (err, content) => {
+            if (err) return console.log('Error loading client secret file:', err);
+            authorize(JSON.parse(content), (auth) => updateSoloOccupy1(auth, values));
+        });
+    } else if (obj.location == "two") {
+        fs.readFile('credentials.json', (err, content) => {
+            if (err) return console.log('Error loading client secret file:', err);
+            authorize(JSON.parse(content), (auth) => updateSoloOccupy2(auth, values));
+        });
+    }
+};
+
+//returns the average elo of a player array
+function getAverageElo(players) {
+    var sum = 0;
+    players.forEach(element => sum += soloPlayers[element][1]);
+    return sum / players.length;
+}
+
+//gets delta - subtract for losers, add for winners
+function getDelta(redElo, blueElo, gameResult) {
+    var redChanceToWin = 1 / (1 + Math.pow(10, (blueElo - redElo) / 400));
+    return Math.round(32 * (gameResult - redChanceToWin));
+}
+
+
+function parseMatch(obj) {
+    //1.  We get an object that has:
+    //      redTeam, blueTeam -> nicks of players on each team
+    //      red, blue -> scores of each team
+    //      stop -> name of player who stopped the game, if applicable
+
+    //2.  Cycle through each nick on redTeam and blueTeam
+    //      if a player doesn't exist, we need to create a new entry in our soloPlayer object
+    //      [nick, 1200, 0, 0 ,0]
+    for (i = 0; i < obj.redTeam.length; i++) {
+        console.log(obj.redTeam[i]);
+        if (!soloPlayers.hasOwnProperty(obj.redTeam[i])) {
+            console.log("adding player");
+            soloPlayers[obj.redTeam[i]] = [obj.redTeam[i], 1200, 0, 0, 0];
+        }
+    }
+    for (i = 0; i < obj.blueTeam.length; i++) {
+        if (!soloPlayers.hasOwnProperty(obj.blueTeam[i])) {
+            soloPlayers[obj.blueTeam[i]] = [obj.blueTeam[i], 1200, 0, 0, 0];
+        }
+    }
+
+    //3.  Now that all players are guaranteed to be in the soloPlayer object, get average elo
+    //      then calculate our delta
+    var gameResult = ((obj.red > obj.blue) ? 1 : 0);
+    var redElo = getAverageElo(obj.redTeam);
+    var blueElo = getAverageElo(obj.blueTeam);
+    var delta = getDelta(redElo, blueElo, gameResult);
+
+    //update match info
+    var matchValues = [];
+    const d = new Date();
+    var date = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
+    // [red1, elo, red2, elo, red3, elo, red4, elo, blue1, elo, blue2, elo, blue3, elo, blue4, elo, redscore, bluescore, delta, timestamp]
+    for (i = 0; i < obj.redTeam.length; i++) {
+        matchValues.push(soloPlayers[obj.redTeam[i]][0]);
+        matchValues.push(soloPlayers[obj.redTeam[i]][1]);
+    }
+    for (i = 0; i < obj.blueTeam.length; i++) {
+        matchValues.push(soloPlayers[obj.blueTeam[i]][0]);
+        matchValues.push(soloPlayers[obj.blueTeam[i]][1]);
+    }
+
+    matchValues[16] = obj.red;
+    matchValues[17] = obj.blue;
+    matchValues[18] = delta;
+    matchValues[19] = date;
+
+    var values = [];
+    values.push(matchValues);
+
+    //4.  Once we have our delta, we can apply changes to each player in the soloPlayer object, then update:
+    //      ADD delta to red, SUBTRACT delta to blue
+    for (i = 0; i < obj.redTeam.length; i++) {
+        soloPlayers[obj.redTeam[i]][1] += delta;
+        soloPlayers[obj.redTeam[i]][2] += 1;
+        soloPlayers[obj.redTeam[i]][3] += ((gameResult) ? 1 : 0);
+        soloPlayers[obj.redTeam[i]][4] += ((gameResult) ? 0 : 1);
+    }
+    for (i = 0; i < obj.blueTeam.length; i++) {
+        soloPlayers[obj.blueTeam[i]][1] -= delta;
+        soloPlayers[obj.blueTeam[i]][2] += 1;
+        soloPlayers[obj.blueTeam[i]][3] += ((gameResult) ? 0 : 1);
+        soloPlayers[obj.blueTeam[i]][4] += ((gameResult) ? 1 : 0);
+    }
+
+
+    //5.  Update google sheets [players, matches]
+    var playerValues = [];
+    for (const x in soloPlayers) {
+        playerValues.push(soloPlayers[x]);
+    }
+    playerValues.sort((a, b) => (a[1] > b[1]) ? -1 : 1);
+
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        authorize(JSON.parse(content), (auth) => updateSoloPlayers(auth, playerValues));
+    });
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        authorize(JSON.parse(content), (auth) => addSoloMatch(auth, values));
+    });
+    
+}
+
+
+
+
+
+
 
 function updateOccupy(obj) {
     client.channels.cache.get('733611167502827551').messages.fetch('735034347287216151')
@@ -542,6 +770,17 @@ function pubLink(message) {
     message.delete();
 }
 
+function cmdGetSolo(message) {
+    var args = message.content.substring(prefix.length).split(" ");
+    for (var x in soloPlayers) if (soloPlayers.hasOwnProperty(x)) delete soloPlayers[x];
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        authorize(JSON.parse(content), getSolo);
+    });
+    message.reply(`loaded solo-ladder from db`);
+    message.delete();
+}
+
 /*
  * GENERAL USE COMMANDS
  */
@@ -549,7 +788,7 @@ function userCommands(message) {
     var args = message.content.substring(prefix.length).split(" ");
     switch (args[0]) {
         case "pp":
-            message.guild.roles.fetch('737894403435135036')
+            message.guild.roles.fetch('741809077331689484')
                 .then(roles => privatePub(message, roles.members.size))
                 .catch(console.error);
             break;
